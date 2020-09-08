@@ -1,0 +1,79 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class BossWeapon : MonoBehaviour
+{
+    public int attackDamage = 20;
+    public int enragedAttackDamage = 40;
+
+    public Vector3 attackOffset;
+    public float attackRange = 10f;
+    public float enragedAttackRange = 15f;
+    public LayerMask attackMask;
+
+    public LayerMask environmentAttackMask;
+
+    //knockback
+    public float knockbackPower = 60;
+    public float knockbackDuration = 5;
+
+    public void Attack()
+    {
+        Vector3 pos = transform.position;
+        pos += transform.right * attackOffset.x;
+        pos += transform.up * attackOffset.y;
+        FMODUnity.RuntimeManager.PlayOneShot("event:/SFX/Enemy/Boss/Boss_Swing", GetComponent<Transform>().position);
+
+
+        Collider2D colInfo = Physics2D.OverlapCircle(pos, attackRange, attackMask);
+        if (colInfo != null)
+        {
+            //Knockback
+            StartCoroutine(PlayerController.instance.Knockback(knockbackDuration, knockbackPower, this.transform));
+            //Take Damage
+            colInfo.GetComponent<PlayerHealth>().TakeDamage(attackDamage);
+            //timestop
+            gameObject.GetComponent<TimeStop>().StopTime(0.02f, 7, 0.5f);
+        }
+
+        //Boss Destroy environment
+        Collider2D envColInfo = Physics2D.OverlapCircle(pos, attackRange, environmentAttackMask);
+        if (envColInfo != null)
+        {
+            envColInfo.GetComponent<DestructibleEnvi>().health -= (attackDamage);
+        }
+    }
+
+    public void EnragedAttack()
+    {
+        Vector3 pos = transform.position;
+        pos += transform.right * attackOffset.x;
+        pos += transform.up * attackOffset.y;
+        FMODUnity.RuntimeManager.PlayOneShot("event:/SFX/Enemy/Boss/Boss_Swing", GetComponent<Transform>().position);
+
+        Collider2D colInfo = Physics2D.OverlapCircle(pos, enragedAttackRange, attackMask);
+        if (colInfo != null)
+        {
+            colInfo.GetComponent<PlayerHealth>().TakeDamage(enragedAttackDamage);
+        }
+
+        //Boss Destroy environment
+        Collider2D envColInfo = Physics2D.OverlapCircle(pos, attackRange, environmentAttackMask);
+        if (envColInfo != null)
+        {
+            envColInfo.GetComponent<DestructibleEnvi>().health -= (enragedAttackDamage);
+        }
+
+    }
+
+    void OnDrawGizmosSelected()
+    {
+        Vector3 pos = transform.position;
+        pos += transform.right * attackOffset.x;
+        pos += transform.up * attackOffset.y;
+
+        Gizmos.DrawWireSphere(pos, attackRange);
+        Gizmos.DrawWireSphere(pos, enragedAttackRange);
+    }
+}
