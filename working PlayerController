@@ -1,0 +1,341 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+
+public class PlayerController : MonoBehaviour
+{
+    //knockback
+    public static PlayerController instance;
+
+
+    public StaminaBar staminaBar;
+    public float speed;
+    public float jumpForce;
+    public float coyoteTimer = .3f;
+    public float groundedTimer = .3f;
+    private float coyoteRemember = 0f;
+    private float groundedRemember = 0f;
+    public float moveInput;
+
+    //Jump BUffer timer
+    public float jumpBufferLength = .1f;
+    private float jumpBufferCount;
+
+    private Rigidbody2D rb;
+
+    private bool facingRight = true;
+
+    //wall Check
+    public Transform wallCheck;
+    public float wallCheckDistance;
+    private bool isTouchingWall;
+    private bool isWallSliding;
+    public float wallSlidingSpeed;
+    //Ledge Check
+    public Transform ledgeCheck;
+    private bool isTouchingLedge;
+    private bool canClimbLedge = false;
+    private bool ledgeDetected = false;
+    private Vector2 ledgePosBot;
+    private Vector2 ledgePos1;
+    private Vector2 ledgePos2;
+
+    public float ledgeClimbXOffset1 = 0f;
+    public float ledgeClimbYOffset1 = 0f;
+    public float ledgeClimbXOffset2 = 0f;
+    public float ledgeClimbYOffset2 = 0f;
+
+    public bool canMove = true;
+    public bool canFlip = true;
+
+    private bool isGrounded;
+    public Transform groundCheck;
+    public float groundCheckRadius;
+    public LayerMask whatIsGround;
+
+    private int extraJumps;
+    public int extraJumpsValue;
+
+    private Animator anim;
+
+    public ParticleSystem ps;
+    public int amountOfParticles;
+    private bool doBurst = true;
+
+    //Knockback
+    private void Awake()
+    {
+        instance = this;
+    }
+
+    void Start()
+    {
+        anim = GetComponent<Animator>();
+        extraJumps = extraJumpsValue;
+        rb = GetComponent<Rigidbody2D>();
+    }
+
+    void Update()
+    {
+        coyoteRemember -= Time.deltaTime;
+
+        if (isGrounded == false)
+        {
+            groundedRemember -= Time.deltaTime;
+        }
+        else
+        {
+            groundedRemember = groundedTimer;
+        }
+
+        if (isGrounded == true)
+        {
+            if (doBurst)
+            {
+                ps.Emit(amountOfParticles);
+                doBurst = false;
+                FMODUnity.RuntimeManager.PlayOneShot("event:/SFX/Environment/Grass/Dust", GetComponent<Transform>().position);
+            }
+            extraJumps = extraJumpsValue;
+            anim.SetBool("isJumping", false);
+        }
+        else
+        {
+            if (!doBurst)
+            {
+                doBurst = true;
+            }
+            anim.SetBool("isJumping", true);
+        }
+        
+        if (Input.GetButtonDown("Jump") && extraJumps > 0)
+        {
+            coyoteRemember = coyoteTimer;
+            anim.SetTrigger("takeOf");
+
+            //StaminaBar.instance.UseStamina(4);
+        }
+
+        if (coyoteRemember > 0 && groundedRemember > 0)
+        {
+            coyoteRemember = 0;
+            groundedRemember = 0;
+            rb.velocity = Vector2.up * jumpForce;
+        }
+
+        else if (Input.GetButtonDown("Jump") && groundedRemember < 0 && extraJumps > 0)
+        {
+            rb.velocity = Vector2.up * jumpForce;
+            //doBurst = true;
+            anim.SetTrigger("takeOf");
+            rb.velocity = Vector2.up * jumpForce;
+            FMODUnity.RuntimeManager.PlayOneShot("event:/SFX/Plague/Plague_Jump", GetComponent<Transform>().position);
+            extraJumps--;
+        }
+
+        //Variable jump line
+        else if (Input.GetButtonUp("Jump") && rb.velocity.y > 0)
+        {
+            rb.velocity = new Vector2(rb.velocity.x, rb.velocity.y * .5f);
+        }
+
+        if (moveInput == 0)
+        {
+            anim.SetBool("isRunning", false);
+        }
+        else
+        {
+            anim.SetBool("isRunning", true);
+        }
+
+        //DASH
+        if (Input.GetButtonDown("Dash") && isGrounded == true && !staminaBar.outOfStamina)
+        {
+            StartCoroutine("DashMove");
+            StaminaBar.instance.UseStamina(30);
+            FMODUnity.RuntimeManager.PlayOneShot("event:/SFX/Plague/Plague_Shift", GetComponent<Transform>().position);
+        }
+
+        if (isGrounded == false)
+        {
+            anim.SetBool("IsFalling", true);
+        }
+        else if (isGrounded == true)
+        {
+            anim.SetBool("IsFalling", false);
+        }
+    }
+
+    private void FixedUpdate()
+    {
+        ApplyMovement();
+        CheckSurroundings();
+        CheckIfWallSliding();
+        CheckLedgeClimb();
+        ledgeDetected = false;
+
+        moveInput = Input.GetAxisRaw("Horizontal");
+
+        //Ignore Collision on dash
+        if (speed >= 45)
+        {
+            Physics2D.IgnoreLayerCollision(9, 10, true);
+            Physics2D.IgnoreLayerCollision(15, 10, true);
+        }
+        else
+        {
+            Physics2D.IgnoreLayerCollision(9, 10, false);
+            Physics2D.IgnoreLayerCollision(15, 10, false);
+        }
+
+        if (canFlip)
+        {
+            if (facingRight == false && moveInput < 0)
+            {
+                Flip();
+            }
+            else if (facingRight == true && moveInput > 0)
+            {
+                Flip();
+            }
+        }
+    }
+
+    private void CheckIfWallSliding()
+    {
+        if (isTouchingWall && !isGrounded && rb.velocity.y < 0 && !canClimbLedge)
+        {
+            isWallSliding = true;
+            anim.SetBool("isWallSliding", true);
+        }
+        else
+        {
+            isWallSliding = false;
+            anim.SetBool("isWallSliding", false);
+        }
+    }
+
+    private void CheckLedgeClimb()
+    {
+        if (ledgeDetected && !canClimbLedge && Input.GetButton("Grab"))
+        {
+            canClimbLedge = true;
+
+            if (facingRight)
+            {
+                ledgePos1 = new Vector2(Mathf.Floor(ledgePosBot.x + wallCheckDistance) - ledgeClimbXOffset1, Mathf.Floor(ledgePosBot.y) + ledgeClimbYOffset1);
+                ledgePos2 = new Vector2(Mathf.Floor(ledgePosBot.x + wallCheckDistance) + ledgeClimbXOffset2, Mathf.Floor(ledgePosBot.y) + ledgeClimbYOffset2);
+            }
+            else
+            {
+                ledgePos1 = new Vector2(Mathf.Ceil(ledgePosBot.x - wallCheckDistance) + ledgeClimbXOffset1, Mathf.Floor(ledgePosBot.y) + ledgeClimbYOffset1);
+                ledgePos2 = new Vector2(Mathf.Ceil(ledgePosBot.x - wallCheckDistance) - ledgeClimbXOffset2, Mathf.Floor(ledgePosBot.y) + ledgeClimbYOffset2);
+            }
+            canMove = false;
+            canFlip = false;
+            anim.SetBool("canClimbLedge", canClimbLedge);
+        }
+
+        if (canClimbLedge)
+        {
+            transform.position = ledgePos1;
+        }
+    }
+
+    public void FinishLedgeClimb()
+    {
+        canClimbLedge = false;
+        transform.position = ledgePos2;
+        canMove = true;
+        canFlip = true;
+        ledgeDetected = false;
+        anim.SetBool("canClimbLedge", canClimbLedge);
+    }
+
+    private void CheckSurroundings()
+    {
+        isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, whatIsGround);
+        isTouchingWall = Physics2D.Raycast(wallCheck.position, transform.right, wallCheckDistance, whatIsGround);
+        isTouchingLedge = Physics2D.Raycast(ledgeCheck.position, transform.right, wallCheckDistance, whatIsGround);
+
+        if (isTouchingWall && !isTouchingLedge && !ledgeDetected)
+        {
+            ledgeDetected = true;
+            ledgePosBot = wallCheck.position;
+        }
+    }
+
+    private void DoBurst()
+    {
+        ps.Emit(amountOfParticles);
+    }
+
+    private void ApplyMovement()
+    {
+        if (canMove)
+        {
+            rb.velocity = new Vector2(moveInput * speed, rb.velocity.y);
+            anim.SetFloat("runMultiplier", Mathf.Abs(moveInput));
+        }
+
+        if (isWallSliding)
+        {
+            if (rb.velocity.y < -wallSlidingSpeed)
+            {
+                rb.velocity = new Vector2(rb.velocity.x, -wallSlidingSpeed);
+            }
+        }
+    }
+
+    void Flip()
+    {
+        facingRight = !facingRight;
+        Vector3 Scaler = transform.localScale;
+        Scaler.x *= -1;
+        transform.localScale = Scaler;
+    }
+
+    private void OnTriggerEnter2D(Collider2D collider)
+    {
+        anim.SetTrigger("grassMove");
+    }
+
+    IEnumerator DashMove()
+    {
+        anim.SetTrigger("dash");
+        groundedTimer = 1f;
+        speed += 25;
+        //Timestop dodges when projectiles/attacks are close (attack window)
+        //FindObjectOfType<TimeStop>().Stop(0.5f);
+        yield return new WaitForSeconds(.2f);
+        speed -= 25;
+        groundedTimer = .3f;
+
+    }
+    //knockback
+    public IEnumerator Knockback(float knockbackDuration, float knockbackPower, Transform obj)
+    {
+        float timer = 0;
+
+        while (knockbackDuration > timer)
+        {
+            //Debug.Log("Knockback");
+            timer += Time.deltaTime;
+            Vector2 direction = (obj.transform.position - this.transform.position).normalized;
+            rb.AddForce(-direction * knockbackPower);
+        }
+        yield return 0;
+       
+    }
+
+    private void OnDrawGizmos()
+    {
+        Gizmos.DrawWireSphere(groundCheck.position, groundCheckRadius);
+
+        Gizmos.DrawLine(wallCheck.position, new Vector3(wallCheck.position.x + wallCheckDistance, wallCheck.position.y, wallCheck.position.z));
+
+        Gizmos.DrawLine(ledgeCheck.position, new Vector3(ledgeCheck.position.x + wallCheckDistance, ledgeCheck.position.y, ledgeCheck.position.z));
+    }
+
+}
