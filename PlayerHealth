@@ -1,0 +1,126 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+
+public class PlayerHealth : MonoBehaviour
+{
+    public int maxHealth = 100;
+    public int currentHealth;
+
+    public bool isInvulnerable = false;
+
+    public HealthBar healthBar;
+
+    public GameObject playerAnim;
+    public GameObject camAnim;
+    public GameObject postAnim;
+    public GameObject deathEffect;
+
+    
+
+    private void Start()
+    {
+        currentHealth = maxHealth;
+        healthBar.SetMaxHealth(maxHealth);
+    }
+
+    private void Update()
+    {
+        if (Input.GetButtonDown("Heal") && currentHealth < 100)
+        {
+            
+            //Debug.Log("Heal");
+            GetComponent<PlayerHealth>().Heal(50);
+            healthBar.SetHealth(currentHealth);
+            camAnim.GetComponent<Animator>().SetBool("playerLow", false);
+        }
+    }
+
+    public void Heal(int healAmount)
+    {
+        currentHealth += healAmount;
+        playerAnim.GetComponent<Animator>().SetTrigger("Heal");
+    }
+
+    public void TakeDamage(int damage)
+    {
+        if (isInvulnerable)
+            return;
+        CinemachineShake.Instance.ShakeCamera(2f, .5f);
+
+        camAnim.GetComponent<Animator>().SetTrigger("shakeHit");
+        playerAnim.GetComponent<Animator>().SetTrigger("takeDamage");
+
+        currentHealth -= damage;
+
+        healthBar.SetHealth(currentHealth);
+        //StaminaBar.instance.UseStamina(5);
+
+        StartCoroutine(DamageAnimation());
+
+        FMODUnity.RuntimeManager.PlayOneShot("event:/SFX/Plague/Plague_TakeDamage", GetComponent<Transform>().position);
+
+        if (currentHealth <= 30)
+        {
+            camAnim.GetComponent<Animator>().SetBool("playerLow", true);
+        }
+        else if (currentHealth >= 30)
+        {
+            camAnim.GetComponent<Animator>().SetBool("playerLow", false);
+        }
+
+        if (currentHealth <= 0)
+        {
+            Die();
+        }
+    }
+    void Die()
+    {
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        Time.timeScale = 1f;
+        //Debug.Log("Player DIED!!!!!!!");
+    }
+
+    IEnumerator DamageAnimation()
+    {
+
+        SpriteRenderer[] srs = GetComponentsInChildren<SpriteRenderer>();
+        //TimeStop
+        FindObjectOfType<TimeStop>().Stop(0.2f);
+
+        for (int i = 0; i < 3; i++)
+        {
+            foreach (SpriteRenderer sr in srs)
+            {
+                Color c = sr.color;
+                c.a = 0;
+                sr.color = c;
+            }
+
+            yield return new WaitForSeconds(.06f);
+
+            foreach (SpriteRenderer sr in srs)
+            {
+                Color c = sr.color;
+                c.a = 1;
+                sr.color = c;
+            }
+
+            yield return new WaitForSeconds(.08f);
+            //TimeStopWait
+            StartCoroutine(WaitForTimeStop());
+        }
+    }
+
+    //Timestop Return null
+    IEnumerator WaitForTimeStop()
+    {
+        while(Time.timeScale != 1.0f)
+        {
+            yield return null;
+        }
+    }
+
+}
